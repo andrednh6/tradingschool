@@ -1,0 +1,7 @@
+[
+  { "symbol": "AIX", "name": "AI Explorers", "sector": "Artificial Intelligence" },
+  { "symbol": "CHP", "name": "ChipMakers Inc", "sector": "Semiconductors" },
+  { "symbol": "BIO", "name": "BiotechLab", "sector": "Biotechnology" },
+  { "symbol": "GRO", "name": "GreenGrowth", "sector": "Clean Energy" },
+  { "symbol": "RET", "name": "RetailNova", "sector": "Consumer Discretionary" }
+]
