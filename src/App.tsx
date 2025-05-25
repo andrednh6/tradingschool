@@ -9,7 +9,7 @@ function App() {
         <h1 className="text-xl font-bold">Welcome to TradingSchool</h1>
         <p>This is your trading simulator MVP.</p>
         <MarketList />
-	</div>
+      </div>
     </AuthGate>
   );
 }
