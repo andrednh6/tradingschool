@@ -2,26 +2,26 @@ import { useTickers } from "../hooks/useTickers";
 import { useUser } from "../context/UserContext";
 import { useState } from "react";
 import { buyStock } from "../hooks/useBuy";
+import { useToast } from "../hooks/useToast";
 import type { Ticker } from "../hooks/useTickers";
 
 export function MarketList({ onBuySuccess }: { onBuySuccess: () => void }) {
   const { tickers, loading } = useTickers();
   const user = useUser();
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const { message, showToast } = useToast();
 
   if (loading) return <div>Loading market data...</div>;
   if (!tickers.length) return <div>No tickers found.</div>;
 
   const handleBuy = async (symbol: string, price: number) => {
     setBusy(symbol);
-    setMessage(null);
     try {
       await buyStock({ uid: user.uid, symbol, price });
-      setMessage(`✅ Bought 1 share of ${symbol}!`);
+      showToast(`✅ Bought 1 share of ${symbol}!`);
       onBuySuccess(); // <-- Notifica al padre para refrescar el portfolio/cash
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      showToast(`❌ ${err.message}`);
     }
     setBusy(null);
   };

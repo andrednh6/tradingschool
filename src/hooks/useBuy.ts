@@ -1,4 +1,4 @@
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../config/firebase";
 
 export async function buyStock({ uid, symbol, price }: { uid: string; symbol: string; price: number }) {
@@ -18,9 +18,20 @@ export async function buyStock({ uid, symbol, price }: { uid: string; symbol: st
     newPortfolio.push({ symbol, quantity: 1 });
   }
 
+  // Actualiza cash y portafolio
   await updateDoc(userRef, {
     cash: data.cash - price,
     portfolio: newPortfolio,
+  });
+
+  // Agrega transacción a la subcolección
+  const txRef = collection(db, "users", uid, "transactions");
+  await addDoc(txRef, {
+    type: "buy",
+    symbol,
+    quantity: 1,
+    price,
+    timestamp: serverTimestamp(),
   });
 
   return { success: true };
