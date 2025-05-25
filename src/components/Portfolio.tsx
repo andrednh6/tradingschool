@@ -8,25 +8,27 @@ type PortfolioItem = {
   quantity: number;
 };
 
-export function Portfolio() {
+export function Portfolio({ refreshSignal }: { refreshSignal: number }) {
   const user = useUser();
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
   const [cash, setCash] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
+  async function fetchPortfolio() {
+    const userRef = doc(db, "users", user.uid);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      setPortfolio(data.portfolio || []);
+      setCash(data.cash || 0);
+    }
+    setLoading(false);
+  }
+
   useEffect(() => {
-    const fetchPortfolio = async () => {
-      const userRef = doc(db, "users", user.uid);
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        setPortfolio(data.portfolio || []);
-        setCash(data.cash || 0);
-      }
-      setLoading(false);
-    };
     fetchPortfolio();
-  }, [user.uid]);
+    // eslint-disable-next-line
+  }, [user.uid, refreshSignal]);
 
   if (loading) return <div>Loading portfolio...</div>;
 

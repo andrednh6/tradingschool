@@ -4,7 +4,7 @@ import { useState } from "react";
 import { buyStock } from "../hooks/useBuy";
 import type { Ticker } from "../hooks/useTickers";
 
-export function MarketList() {
+export function MarketList({ onBuySuccess }: { onBuySuccess: () => void }) {
   const { tickers, loading } = useTickers();
   const user = useUser();
   const [busy, setBusy] = useState<string | null>(null);
@@ -18,9 +18,10 @@ export function MarketList() {
     setMessage(null);
     try {
       await buyStock({ uid: user.uid, symbol, price });
-      setMessage(`Successfully bought 1 share of ${symbol}`);
+      setMessage(`✅ Bought 1 share of ${symbol}!`);
+      onBuySuccess(); // <-- Notifica al padre para refrescar el portfolio/cash
     } catch (err: any) {
-      setMessage(err.message);
+      setMessage(`❌ ${err.message}`);
     }
     setBusy(null);
   };
@@ -29,7 +30,7 @@ export function MarketList() {
     <div className="my-4">
       <h2 className="text-lg font-bold mb-2">Market</h2>
       {message && (
-        <div className="mb-2 text-center text-sm text-blue-600 bg-blue-50 rounded p-2">{message}</div>
+        <div className="mb-2 text-center text-sm text-blue-800 bg-blue-100 rounded p-2 transition-all duration-300">{message}</div>
       )}
       <div className="overflow-x-auto">
         <table className="min-w-full border rounded-lg shadow text-sm sm:text-base">
