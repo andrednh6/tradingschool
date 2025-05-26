@@ -7,6 +7,7 @@ export type Ticker = {
   name: string;
   sector: string;
   current: number;
+  history: number[]; 
 };
 
 export function useTickers() {
@@ -25,6 +26,7 @@ export function useTickers() {
             name: d.name,
             sector: d.sector,
             current: d.current,
+            history: d.history,
           });
         });
         setTickers(data);
