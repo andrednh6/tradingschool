@@ -62,13 +62,14 @@ export function OnboardingDialog({ open, onClose }: OnboardingDialogProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300 ease-in-out">
       {/* Modal Card */}
       <div className="relative bg-white text-gray-800 dark:bg-gray-700 dark:text-gray-100 rounded-2xl shadow-2xl p-6 max-w-[90vw] w-full sm:max-w-md mx-2 animate-fadeIn">
-        {/* Close Button */}
+        {/* Close Button - Estilos ajustados para eliminar anillo de foco */}
         <button
-          className="absolute top-2 right-3 text-xl font-bold text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors focus:outline-none"
+          className="absolute top-3 right-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 p-1 rounded-full focus:outline-none focus:ring-0 transition-colors" // Añadido focus:ring-0
           onClick={onClose}
           aria-label="Close"
+          style={{ fontSize: '1.1rem', lineHeight: '1' }} 
         >
-          ×
+          <span aria-hidden="true">&times;</span>
         </button>
         {/* Header */}
         <div className="flex flex-col items-center mb-4">
@@ -79,8 +80,9 @@ export function OnboardingDialog({ open, onClose }: OnboardingDialogProps) {
         <div className="mb-6 text-center text-sm ">{STEPS[step].content}</div>
         {/* Buttons */}
         <div className="flex justify-between items-center">
+          {/* Botones con focus:outline-none y focus:ring-0 para eliminar anillo de foco */}
           <button
-            className="px-4 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors"
+            className="px-4 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors focus:outline-none focus:ring-0"
             onClick={onClose}
           >
             Skip
@@ -88,7 +90,7 @@ export function OnboardingDialog({ open, onClose }: OnboardingDialogProps) {
           <div className="flex gap-2">
             {step > 0 && (
               <button
-                className="px-4 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors"
+                className="px-4 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors focus:outline-none focus:ring-0"
                 onClick={() => setStep((s) => s - 1)}
               >
                 Back
@@ -96,14 +98,14 @@ export function OnboardingDialog({ open, onClose }: OnboardingDialogProps) {
             )}
             {!isLast ? (
               <button
-                className="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors"
+                className="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors focus:outline-none focus:ring-0"
                 onClick={() => setStep((s) => s + 1)}
               >
                 Next
               </button>
             ) : (
               <button
-                className="px-4 py-2 rounded text-sm font-medium bg-green-600 text-white hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 transition-colors"
+                className="px-4 py-2 rounded text-sm font-medium bg-green-600 text-white hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 transition-colors focus:outline-none focus:ring-0"
                 onClick={onClose}
               >
                 Start trading!
