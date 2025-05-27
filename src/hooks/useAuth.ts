@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { onAuthStateChanged, signInAnonymously } from "firebase/auth"; // Values
+import type { User as FirebaseUser } from "firebase/auth"; // Type-only import
+import { doc, getDoc, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
 import { auth, db } from "../config/firebase";
 
-type UserData = {
+export type UserData = {
   uid: string;
   cash: number;
-  createdAt: string;
+  createdAt: string; // ISO string date
+  level: number;
 };
 
 export function useAuth() {
@@ -14,28 +16,55 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsub = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (!firebaseUser) {
-        await signInAnonymously(auth);
+        try {
+          await signInAnonymously(auth);
+        } catch (error) {
+          console.error("Error signing in anonymously:", error);
+          setLoading(false);
+        }
         return;
       }
 
       const uid = firebaseUser.uid;
-      const ref = doc(db, "users", uid);
-      const snap = await getDoc(ref);
+      const userRef = doc(db, "users", uid);
+      const userSnap = await getDoc(userRef);
 
-      if (!snap.exists()) {
-        const newUser = {
+      if (!userSnap.exists()) {
+        const newUserFirestoreData = {
           cash: 10000,
           createdAt: serverTimestamp(),
+          level: 1,
+          portfolio: [],
         };
-        await setDoc(ref, newUser);
-        setUser({ uid, cash: 10000, createdAt: "" });
+        try {
+          await setDoc(userRef, newUserFirestoreData);
+          setUser({
+            uid,
+            cash: newUserFirestoreData.cash,
+            createdAt: new Date().toISOString(),
+            level: newUserFirestoreData.level,
+          });
+        } catch (error) {
+          console.error("Error creating new user document:", error);
+        }
       } else {
-        const data = snap.data();
-        setUser({ uid, cash: data.cash, createdAt: data.createdAt.toDate().toISOString() });
-      }
+        const data = userSnap.data();
+        let isoCreatedAt = "";
+        if (data.createdAt instanceof Timestamp) {
+          isoCreatedAt = data.createdAt.toDate().toISOString();
+        } else if (typeof data.createdAt === 'string') {
+          isoCreatedAt = data.createdAt;
+        }
 
+        setUser({
+          uid,
+          cash: data.cash,
+          createdAt: isoCreatedAt,
+          level: data.level || 1,
+        });
+      }
       setLoading(false);
     });
 
