@@ -7,8 +7,13 @@ import { OnboardingDialog } from "./components/OnboardingDialog";
 import { useOnboarding } from "./hooks/useOnboarding";
 
 function App() {
-  const [refresh, setRefresh] = useState(0);
+  const [refresh, setRefresh] = useState(0); // This state is used as refreshSignal
   const { show: showOnboarding, finish: finishOnboarding } = useOnboarding();
+
+  // This function will be passed to Portfolio's onTransaction prop
+  const handlePortfolioTransaction = () => {
+    setRefresh((n) => n + 1); // Increment refresh state, same as onBuySuccess
+  };
 
   // Para forzar la visualización del OnboardingDialog en tus pruebas:
   // const showOnboarding = true;
@@ -16,6 +21,7 @@ function App() {
 
   return (
     <AuthGate>
+      {/* This usage of OnboardingDialog seems correct if its props are { open: boolean; onClose: () => void; } */}
       {showOnboarding && <OnboardingDialog open={showOnboarding} onClose={finishOnboarding} />}
       
       {!showOnboarding && (
@@ -24,7 +30,11 @@ function App() {
             Welcome to TradingSchool
           </h1>
           
-          <Portfolio refreshSignal={refresh} />
+          {/* Pass handlePortfolioTransaction to the onTransaction prop */}
+          <Portfolio
+            refreshSignal={refresh}
+            onTransaction={handlePortfolioTransaction} // <-- PROP AÑADIDA AQUÍ
+          />
           <MarketList onBuySuccess={() => setRefresh((n) => n + 1)} />
           <Transactions />
         </div>
