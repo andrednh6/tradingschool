@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { AuthGate } from "./components/AuthGate";
 import { Portfolio } from "./components/Portfolio";
 import { MarketList } from "./components/MarketList";

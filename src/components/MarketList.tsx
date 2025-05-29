@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import type { SimulatedMarketTicker, ShowToastFunction } from '../types/simulation';
+import type { SimulatedMarketTicker } from '../types/simulation';
+//import type { ShowToastFunction } from '../types/simulation';//
 import { useToast } from '../hooks/useToast';
 import {
   LineChart,
@@ -9,8 +10,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
-  Legend,
-} from "recharts"; // Added Legend
+} from "recharts"; 
+//import {Legend} from "recharts" //
 
 interface MarketListProps {
   marketTickers: SimulatedMarketTicker[];

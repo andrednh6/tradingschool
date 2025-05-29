@@ -9,8 +9,9 @@ import {
   CartesianGrid,
 } from "recharts";
 // Removed: import { useSimulationSession } from "../hooks/useSimulationSession";
-import type { SimulationSessionData, ShowToastFunction } from "../types/simulation";
+import type { SimulationSessionData} from "../types/simulation";
 import { useToast } from "../hooks/useToast"; // Still used for sell action feedback
+//import type {ShowToastFunction} from "../types/simulation";
 
 interface PortfolioProps {
   sessionData: SimulationSessionData | null;
