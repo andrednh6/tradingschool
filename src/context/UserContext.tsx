@@ -1,15 +1,12 @@
 import { createContext, useContext } from "react";
-
-type UserData = {
-  uid: string;
-  cash: number;
-  createdAt: string;
-};
+import type { UserData } from "../hooks/useAuth";
 
 export const UserContext = createContext<UserData | null>(null);
 
 export const useUser = () => {
   const context = useContext(UserContext);
-  if (!context) throw new Error("useUser must be used inside UserProvider");
-  return context;
+  if (context === undefined) { // Es más común verificar contra undefined para createContext
+    throw new Error("useUser must be used within a UserContext.Provider (likely inside AuthGate)");
+  }
+  return context; 
 };

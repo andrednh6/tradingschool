@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth"; // Values
-import type { User as FirebaseUser } from "firebase/auth"; // Type-only import
+import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import type { User as FirebaseUser } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
 import { auth, db } from "../config/firebase";
 
@@ -9,6 +9,10 @@ export type UserData = {
   cash: number;
   createdAt: string; // ISO string date
   level: number;
+  // Nuevo campo para rastrear el progreso de la teoría
+  // Podríamos usar un número para indicar el último nivel de teoría completado.
+  // Ejemplo: 0 = ninguno, 1 = teoría del Nivel 1 completada, etc.
+  theoryProgress: number;
 };
 
 export function useAuth() {
@@ -35,8 +39,9 @@ export function useAuth() {
         const newUserFirestoreData = {
           cash: 10000,
           createdAt: serverTimestamp(),
-          level: 1,
+          level: 1, // Los usuarios empiezan en Nivel 1
           portfolio: [],
+          theoryProgress: 0, // Aún no ha completado ninguna teoría de nivel
         };
         try {
           await setDoc(userRef, newUserFirestoreData);
@@ -45,6 +50,7 @@ export function useAuth() {
             cash: newUserFirestoreData.cash,
             createdAt: new Date().toISOString(),
             level: newUserFirestoreData.level,
+            theoryProgress: newUserFirestoreData.theoryProgress,
           });
         } catch (error) {
           console.error("Error creating new user document:", error);
@@ -63,6 +69,7 @@ export function useAuth() {
           cash: data.cash,
           createdAt: isoCreatedAt,
           level: data.level || 1,
+          theoryProgress: data.theoryProgress || 0, // Default a 0 si no existe
         });
       }
       setLoading(false);
