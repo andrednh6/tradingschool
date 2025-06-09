@@ -4,8 +4,11 @@ import { runWeeklyMarketUpdate, getTickerCurrentPrice } from '../lib/PriceUpdate
 //import type {LocalPortfolioItem, MarketEvent} from '../types/simulation'
 
 const LOCAL_STORAGE_KEY = 'tradingSchool_simulationSession';
-const DEFAULT_INITIAL_CASH = 10000;
+const DEFAULT_INITIAL_CASH = 1000;
 const MAX_LEVEL_MVP = 5;
+const MAX_SIMULATION_WEEKS = 52; // Define the end point for the simulation
+
+
 
 const initialMarketTickers: SimulatedMarketTicker[] = [
   { symbol: "ALPHA", name: "Alpha Corp", sector: "Technology", currentPrice: 100.00, history: [100.00], baseVolatility: 0.02, baseTrend: 0.001 },
@@ -25,10 +28,10 @@ const LEVEL_GOALS: Record<number, {
   simulatedWeeksMin?: number;
 }> = {
   1: { buyTransactionsMin: 1, hasStocksInPortfolio: true, simulatedWeeksMin: 1 },
-  2: { sectorsInPortfolioMin: 2, portfolioValueMin: 10200, simulatedWeeksMin: 3, sellTransactionsMin: 1 },
-  3: { totalTransactionsMin: 5, portfolioValueMin: 10500, simulatedWeeksMin: 6 },
-  4: { totalTransactionsMin: 8, portfolioValueMin: 11000, simulatedWeeksMin: 10 },
-  5: { totalTransactionsMin: 12, portfolioValueMin: 12000, simulatedWeeksMin: 14 },
+  2: { sectorsInPortfolioMin: 2, portfolioValueMin: 1200, simulatedWeeksMin: 3, sellTransactionsMin: 1 },
+  3: { totalTransactionsMin: 5, portfolioValueMin: 1500, simulatedWeeksMin: 6 },
+  4: { totalTransactionsMin: 8, portfolioValueMin: 2000, simulatedWeeksMin: 10 },
+  5: { totalTransactionsMin: 12, portfolioValueMin: 3000, simulatedWeeksMin: 14 },
 };
 
 const createDefaultSessionData = (initialCash: number): SimulationSessionData => {
@@ -82,18 +85,24 @@ export function useSimulationSession() {
           Array.isArray(parsedSession.portfolio) &&
           Array.isArray(parsedSession.marketTickers)
         ) {
-          if (parsedSession.activeMarketEvents === undefined) {
-            parsedSession.activeMarketEvents = [];
-          }
+          if (parsedSession.activeMarketEvents === undefined) parsedSession.activeMarketEvents = [];
           if (!parsedSession.marketTickers || parsedSession.marketTickers.length === 0) {
             console.log('[SimSession] Re-initializing marketTickers for loaded session.');
             parsedSession.marketTickers = initialMarketTickers.map(t => ({ ...t, history: [t.currentPrice]}));
           }
-          if (parsedSession.simulatedWeeksPassed === undefined) {
-            parsedSession.simulatedWeeksPassed = 0;
-          }
-          setSessionData(parsedSession);
-        } else {
+          if (parsedSession.simulatedWeeksPassed === undefined) parsedSession.simulatedWeeksPassed = 0;
+          if (parsedSession.theoryProgressLevelCompleted === undefined) parsedSession.theoryProgressLevelCompleted = 0;
+          // If a previous session was marked inactive (e.g. completed 52 weeks), don't just resume it as active.
+          // User should explicitly start a new one or we might have a "continue sandbox" option later.
+          // For now, if it was inactive, treat as no session to force "Start New".
+          if (parsedSession.isActive === false) {
+            console.log("[SimSession] Loaded inactive session, prompting for new start.");
+            setSessionData(null); // Force user to start a new guided session
+            localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear the inactive session
+          } else {
+            setSessionData(parsedSession);
+        } 
+      } else {
           console.warn("[SimSession] Invalid session data in localStorage, creating new default.");
           const newSession = createDefaultSessionData(DEFAULT_INITIAL_CASH);
           setSessionData(newSession);
@@ -116,10 +125,13 @@ export function useSimulationSession() {
     if (!currentData.isActive || currentData.currentLevel >= MAX_LEVEL_MVP) {
       return currentData;
     }
-
+    if (currentData.currentLevel === MAX_LEVEL_MVP && currentData.theoryProgressLevelCompleted >= MAX_LEVEL_MVP) {
+      // If already at max level and theory is done, check transactional goals for "final completion"
+      // but don't advance further. The 'isActive' might be set to false by other conditions.
+    }
     const theoryRequirementMet = currentData.theoryProgressLevelCompleted >= currentData.currentLevel;
     if (!theoryRequirementMet) {
-      console.log('[SimSession] Theory not met for level', currentData.currentLevel);
+      console.log(`[SimSession] Theory not yet completed for Level ${currentData.currentLevel}`);
       return currentData;
     }
 
@@ -129,15 +141,13 @@ export function useSimulationSession() {
 
     if (goals) {
       console.log(`[SimSession] Checking transactional goals for Level ${levelToCheck}:`, goals);
-      if (goals.simulatedWeeksMin !== undefined && currentData.simulatedWeeksPassed < goals.simulatedWeeksMin) {
-        transactionalGoalsMet = false; console.log('[SimSession] Weeks goal NOT met');
-      }
+      if (goals.simulatedWeeksMin !== undefined && currentData.simulatedWeeksPassed < goals.simulatedWeeksMin)
+        transactionalGoalsMet = false; console.log('[SimSession] Weeks goal NOT met');    
       if (transactionalGoalsMet && goals.buyTransactionsMin !== undefined) {
         if (currentData.transactions.filter(t => t.type === 'buy').length < goals.buyTransactionsMin) {
           transactionalGoalsMet = false; console.log('[SimSession] Buy transactions goal NOT met');
         }
       }
-      // ... (add console.logs for other goal checks if needed) ...
       if (transactionalGoalsMet && goals.portfolioValueMin !== undefined) {
         const currentPortfolioStockValue = currentData.portfolio.reduce((acc, item) => {
             const price = getTickerCurrentPrice(currentData.marketTickers, item.symbol);
@@ -170,28 +180,26 @@ export function useSimulationSession() {
           transactionalGoalsMet = false; console.log('[SimSession] Sectors goal NOT met');
         }
       }
-
-
     } else {
       console.warn(`[SimSession] No LEVEL_GOALS defined for level ${levelToCheck}`);
       return currentData;
     }
-
     if (transactionalGoalsMet) {
-      const newLevel = currentData.currentLevel + 1;
-      const message = newLevel > MAX_LEVEL_MVP
-        ? "You've completed all simulation training levels! Excellent work!"
-        : `Congratulations! You've advanced to Level ${newLevel}!`;
-      showToastFunc(message);
-      console.log(`[SimSession] Leveling up to ${newLevel}`);
-
-      if (newLevel > MAX_LEVEL_MVP) {
-        console.log("[SimSession] All MVP levels completed. TODO: Sync to Firestore.");
-        return { ...currentData, currentLevel: MAX_LEVEL_MVP, isActive: false };
+      if (currentData.currentLevel < MAX_LEVEL_MVP) {
+        const newLevel = currentData.currentLevel + 1;
+        showToastFunc(`Congratulations! You've advanced to Level ${newLevel}!`);
+        return { ...currentData, currentLevel: newLevel };
+      } else if (currentData.currentLevel === MAX_LEVEL_MVP) {
+        // Reached and completed transactional goals for the final MVP level
+        showToastFunc("You've completed all objectives for the final training level!");
+        // The session might end here due to 52 weeks or going broke,
+        // or we could explicitly mark it as "guided_training_complete"
+        // For now, isActive will be handled by end conditions.
+        // TODO: Call syncSimulationCompletionToFirestore(userIdGlobal, currentData);
+        console.log("[SimSession] All MVP level goals completed. Consider syncing or next steps.");
+        // We don't set isActive: false here directly, let end conditions handle it or add specific logic
       }
-      return { ...currentData, currentLevel: newLevel };
     }
-    console.log('[SimSession] Transactional goals NOT met for level', levelToCheck);
     return currentData;
   }, []);
 
@@ -250,6 +258,16 @@ export function useSimulationSession() {
       let finalData = { ...prevData, cash: newCash, portfolio: updatedPortfolio, transactions: newTransactions };
       console.log('[SimSession] Data before buy level check:', finalData);
       finalData = internalCheckAndAdvanceLevel(finalData, params.showToastFunc);
+          // Check for gone broke after buy
+        const currentPortfolioStockValue = finalData.portfolio.reduce((acc, item) => {
+        const price = getTickerCurrentPrice(finalData.marketTickers, item.symbol);
+        return acc + (item.quantity * price);
+      }, 0);
+      if (finalData.cash <= 0 && currentPortfolioStockValue <= 0 && finalData.isActive) {
+        params.showToastFunc("Simulation ended: You've run out of funds!");
+        finalData.isActive = false;
+        console.log("[SimSession] Gone broke after buy. TODO: Sync to Firestore & show report.");
+      }
       saveSessionToLocalStorage(finalData);
       params.showToastFunc(`Sim: Bought ${params.quantity} of ${params.symbol} @ $${transactionPrice.toFixed(2)}`);
       return finalData;
@@ -322,35 +340,106 @@ export function useSimulationSession() {
     console.log('[SimSession] advanceSimulatedWeek called');
     setSessionData(prevData => {
       if (!prevData || !prevData.isActive) return prevData;
-      const newSimulatedWeeksPassed = prevData.simulatedWeeksPassed + 1;
+      let newSimulatedWeeksPassed = prevData.simulatedWeeksPassed + 1;
       const { updatedTickers, updatedActiveEvents } = runWeeklyMarketUpdate(
         prevData.marketTickers,
         newSimulatedWeeksPassed,
         prevData.activeMarketEvents
       );
-      console.log('[SimSession] Market tickers updated by PriceUpdateEngine:', updatedTickers);
-      showToastFunc(`Simulated Week ${newSimulatedWeeksPassed}. The market has moved...`);
-      let updatedData: SimulationSessionData = {
+       let finalSessionData: SimulationSessionData = {
+
         ...prevData,
+
         marketTickers: updatedTickers,
+
         activeMarketEvents: updatedActiveEvents,
+
         simulatedWeeksPassed: newSimulatedWeeksPassed,
+
       };
-      console.log('[SimSession] Data before week advance level check:', updatedData);
-      updatedData = internalCheckAndAdvanceLevel(updatedData, showToastFunc);
-      saveSessionToLocalStorage(updatedData);
-      return updatedData;
+
+
+
+      // Check for "gone broke" condition after prices are updated
+
+      const currentPortfolioStockValue = finalSessionData.portfolio.reduce((acc, item) => {
+
+        const price = getTickerCurrentPrice(finalSessionData.marketTickers, item.symbol);
+
+        return acc + (item.quantity * price);
+
+      }, 0);
+
+      if (finalSessionData.cash <= 0 && currentPortfolioStockValue <= 0) {
+
+        showToastFunc("Simulation ended: You've run out of funds!");
+
+        console.log("[SimSession] Gone broke. TODO: Sync to Firestore & show report.");
+
+        finalSessionData.isActive = false;
+
+        // No further level check needed if broke
+
+        saveSessionToLocalStorage(finalSessionData);
+
+        return finalSessionData;
+
+      }
+
+      
+
+      // Check for simulation end condition (MAX_SIMULATION_WEEKS)
+
+      if (newSimulatedWeeksPassed >= MAX_SIMULATION_WEEKS) {
+
+        showToastFunc(`Simulation complete: ${MAX_SIMULATION_WEEKS} weeks reached! Check your final report (feature coming soon).`);
+
+        console.log(`[SimSession] ${MAX_SIMULATION_WEEKS} weeks reached. TODO: Sync to Firestore & show report.`);
+
+        finalSessionData.isActive = false;
+
+        // No further level check needed if max weeks reached
+
+        saveSessionToLocalStorage(finalSessionData);
+
+        return finalSessionData;
+
+      }
+
+      
+
+      showToastFunc(`Simulated Week ${newSimulatedWeeksPassed}. The market has moved...`);
+
+      finalSessionData = internalCheckAndAdvanceLevel(finalSessionData, showToastFunc);
+
+      saveSessionToLocalStorage(finalSessionData);
+
+      return finalSessionData;
+
     });
+
   }, [saveSessionToLocalStorage, internalCheckAndAdvanceLevel]);
 
+
+
   return {
+
     sessionData,
+
     isLoadingSession,
+
     startNewGuidedSession,
+
     resetCurrentSession,
+
     recordBuyInSession,
+
     recordSellInSession,
+
     completeTheoryForCurrentLevel,
+
     advanceSimulatedWeek,
+
   };
+
 }
