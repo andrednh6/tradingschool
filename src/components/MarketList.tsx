@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import type { SimulatedMarketTicker } from '../types/simulation';
-//import type { ShowToastFunction } from '../types/simulation';//
+import type { SimulatedMarketTicker, ShowToastFunction } from '../types/simulation';
 import { useToast } from '../hooks/useToast';
+import {useSimulationSession} from '../hooks/useSimulationSession';
 import {
   LineChart,
   Line,
@@ -13,30 +13,29 @@ import {
 } from "recharts"; 
 //import {Legend} from "recharts" //
 
-interface MarketListProps {
-  marketTickers: SimulatedMarketTicker[];
-  sessionCash: number;
-  isActiveSession: boolean;
-  onBuyStock: (params: {
-    symbol: string;
-    name: string;
-    sector: string;
-    quantity: number;
-  }) => Promise<void | { success: boolean; error?: string }>;
-}
+// Helper function to interpret fundamental data
+const getOutlook = (trend: number): { text: string; color: string; } => {
+  if (trend > 0.0015) return { text: 'Strong Positive', color: 'text-green-500 dark:text-green-400' };
+  if (trend > 0) return { text: 'Positive', color: 'text-green-600 dark:text-green-500' };
+  if (trend === 0) return { text: 'Neutral', color: 'text-gray-500 dark:text-gray-400' };
+  return { text: 'Negative', color: 'text-red-500 dark:text-red-400' };
+};
+const getRiskProfile = (volatility: number): { text: string; color: string; } => {
+  if (volatility > 0.035) return { text: 'High', color: 'text-red-600 dark:text-red-500' };
+  if (volatility > 0.02) return { text: 'Medium', color: 'text-yellow-600 dark:text-yellow-500' };
+  return { text: 'Low', color: 'text-green-600 dark:text-green-500' };
+};
 
-export function MarketList({ marketTickers, sessionCash, isActiveSession, onBuyStock }: MarketListProps) {
+export function MarketList() {
+  const { sessionData, recordBuyInSession, isLoadingSession } = useSimulationSession();
   const { showToast } = useToast();
   const [selectedTicker, setSelectedTicker] = useState<SimulatedMarketTicker | null>(null);
-  // Store buyQuantity as a string for better input UX, parse on submit
   const [buyQuantityInput, setBuyQuantityInput] = useState<string>("1");
 
-  // Theme state for chart (copied from Portfolio.tsx for consistency)
+  // Theme state for chart
   const [currentTheme, setCurrentTheme] = useState<"light" | "dark">(() => {
     if (typeof window !== "undefined" && window.matchMedia) {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     }
     return "light";
   });
@@ -61,14 +60,17 @@ export function MarketList({ marketTickers, sessionCash, isActiveSession, onBuyS
 
 
   useEffect(() => {
-    // console.log('[MarketList.tsx] Props received. isActiveSession:', isActiveSession, 'marketTickers count:', marketTickers.length, 'sessionCash:', sessionCash);
-    if (selectedTicker && !marketTickers.find(t => t.symbol === selectedTicker.symbol)) {
-        setSelectedTicker(null);
+    // When market data changes (e.g., after advancing a week), update the selected ticker's data
+    if (selectedTicker && sessionData?.marketTickers) {
+      const updatedSelectedTicker = sessionData.marketTickers.find(t => t.symbol === selectedTicker.symbol);
+      if (updatedSelectedTicker) {
+        setSelectedTicker(updatedSelectedTicker);
+      } else {
+        setSelectedTicker(null); // Ticker might no longer exist
+      }
     }
-  }, [marketTickers, sessionCash, isActiveSession, selectedTicker]);
-
-
-
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionData?.marketTickers]); // Depend only on marketTickers part of sessionData for this effect
 
   const handleSelectTicker = (ticker: SimulatedMarketTicker) => {
     setSelectedTicker(ticker);
@@ -82,20 +84,18 @@ export function MarketList({ marketTickers, sessionCash, isActiveSession, onBuyS
       showToast("Please select a stock and enter a valid positive quantity.");
       return;
     }
-    if (!isActiveSession) {
+    if (!sessionData?.isActive) {
       showToast("No active simulation session to buy stock.");
       return;
     }
-    if (sessionCash < selectedTicker.currentPrice * quantity) {
+    if (sessionData.cash < selectedTicker.currentPrice * quantity) {
         showToast("Insufficient cash for this purchase.");
         return;
     }
 
-    await onBuyStock({
-      symbol: selectedTicker.symbol,
-      name: selectedTicker.name,
-      sector: selectedTicker.sector,
-      quantity: quantity,
+    await recordBuyInSession({
+      symbol: selectedTicker.symbol, name: selectedTicker.name, sector: selectedTicker.sector,
+      quantity: quantity, showToastFunc: showToast as ShowToastFunction,
     });
     setBuyQuantityInput("1");
   };
@@ -106,53 +106,34 @@ export function MarketList({ marketTickers, sessionCash, isActiveSession, onBuyS
   })) || [];
 
   // Y-Axis domain calculation for selected ticker chart
-  let yMinTicker = 0, yMaxTicker = 100; // Default values
+  let yMinTicker = 0, yMaxTicker = 100; 
   if (selectedTicker && selectedTickerChartData.length > 0) {
       const yValues = selectedTickerChartData.map(d => d.price);
       yMinTicker = Math.min(...yValues);
       yMaxTicker = Math.max(...yValues);
-
       if (isNaN(yMinTicker) || !isFinite(yMinTicker)) yMinTicker = 0;
       if (isNaN(yMaxTicker) || !isFinite(yMaxTicker)) yMaxTicker = selectedTicker.currentPrice * 1.2 || 100;
-      
       const range = yMaxTicker - yMinTicker;
       const padding = range === 0 ? (yMinTicker === 0 ? 10 : Math.abs(yMinTicker * 0.1)) : range * 0.1;
-      
       yMinTicker = Math.max(0, yMinTicker - padding);
       yMaxTicker = yMaxTicker + padding;
-
       if (yMinTicker === yMaxTicker) {
           yMaxTicker = yMinTicker + (yMinTicker === 0 ? 10 : Math.abs(yMinTicker * 0.2) || 10);
       }
   }
 
-
-  if (!isActiveSession && marketTickers.length === 0) {
-    return (
-        <div className="my-6 p-4 bg-white dark:bg-gray-700 rounded-lg shadow-xl">
-            <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Simulation Market</h2>
-            <p className="text-center py-6 text-gray-500 dark:text-gray-400">
-                Market data will be available once a simulation session is active.
-            </p>
-        </div>
-    );
+  if (isLoadingSession) return <div className="my-4 p-4 text-center">Loading market...</div>;
+  if (!sessionData || !sessionData.isActive || !sessionData.marketTickers || sessionData.marketTickers.length === 0) {
+    return <div className="my-4 p-4 text-center text-gray-500 dark:text-gray-400">Market data not available. Please start a new session.</div>;
   }
   
-  if (marketTickers.length === 0 && isActiveSession) { 
-      return (
-        <div className="my-6 p-4 bg-white dark:bg-gray-700 rounded-lg shadow-xl">
-            <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Simulation Market</h2>
-            <p className="text-center py-6 text-gray-500 dark:text-gray-400">
-                No market tickers available in the current simulation.
-            </p>
-        </div>
-      );
-  }
+ const { marketTickers, cash: sessionCash, currentLevel } = sessionData;
 
   return (
     <div className="my-6 p-4 bg-white dark:bg-gray-700 rounded-lg shadow-xl">
       <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Simulation Market</h2>
       <div className="grid md:grid-cols-2 gap-x-6 gap-y-4">
+           {/* Ticker List */}
         <div className="space-y-2 pr-2 max-h-96 md:max-h-[calc(100vh-25rem)] overflow-y-auto custom-scrollbar">
           {marketTickers.map((ticker) => (
             <div
@@ -171,7 +152,7 @@ export function MarketList({ marketTickers, sessionCash, isActiveSession, onBuyS
             </div>
           ))}
         </div>
-
+        {/* Buy Panel / Selected Ticker Details */}
         <div className="p-1">
           {selectedTicker ? (
             <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-lg shadow-inner">
@@ -205,40 +186,45 @@ export function MarketList({ marketTickers, sessionCash, isActiveSession, onBuyS
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-xs text-gray-500 dark:text-gray-400">
-                    Not enough price history to display chart for {selectedTicker.symbol}.
+                    Not enough price history to display chart.
                   </div>
                 )}
               </div>
+{/* Fundamental Insights - UNLOCKED AT LEVEL 3 */}
+              {currentLevel >= 3 && (
+                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/40 rounded-md text-sm">
+                    <h4 className="font-bold text-blue-800 dark:text-blue-200 mb-2">Fundamental Insights</h4>
+                    <div className="space-y-1 text-xs">
+                        <div className="flex justify-between">
+                            <span className="text-gray-600 dark:text-gray-300">Company Outlook:</span>
+                            <span className={`font-semibold ${getOutlook(selectedTicker.baseTrend).color}`}>{getOutlook(selectedTicker.baseTrend).text}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-gray-600 dark:text-gray-300">Volatility / Risk:</span>
+                            <span className={`font-semibold ${getRiskProfile(selectedTicker.baseVolatility).color}`}>{getRiskProfile(selectedTicker.baseVolatility).text}</span>
+                        </div>
+                    </div>
+                </div>
+              )}
 
               <div className="mt-4 space-y-3">
                 <div>
                   <label htmlFor="buyQuantityInput" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Quantity to Buy:</label>
                   <input
-                    type="text" // Changed to text to allow empty string during typing
+                    type="text" 
                     id="buyQuantityInput"
                     name="buyQuantityInput"
                     value={buyQuantityInput}
                     onChange={(e) => {
                         const val = e.target.value;
                         // Allow empty or positive integers
-                        if (val === "" || /^[1-9]\d*$/.test(val) || val === "0" && buyQuantityInput.length === 0) { // Allow typing '0' initially if input is empty
-                             if (val === "0" && buyQuantityInput.length === 0 && e.target.value.length === 1) {
-                                setBuyQuantityInput("1"); // If they type 0 first, make it 1
-                             } else if (parseInt(val,10) > 9999 ) { // Max quantity limit
-                                setBuyQuantityInput("9999");
-                             }
-                             else {
-                                setBuyQuantityInput(val);
-                             }
-                        } else if (val !== "" && parseInt(val,10) < 1) {
-                            setBuyQuantityInput("1");
+                                          if (val === "" || /^[1-9]\d*$/.test(val)) {
+                           if (parseInt(val, 10) > 9999) { setBuyQuantityInput("9999"); }
+                           else { setBuyQuantityInput(val); }
                         }
                     }}
-                    onBlur={(e) => { // Validate on blur, ensure it's at least 1
-                        const num = parseInt(e.target.value, 10);
-                        if (isNaN(num) || num < 1) {
-                            setBuyQuantityInput("1");
-                        }
+                    onBlur={(e) => {
+                        if (e.target.value === "") { setBuyQuantityInput("1"); }
                     }}
                     className="block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   />
@@ -251,12 +237,12 @@ export function MarketList({ marketTickers, sessionCash, isActiveSession, onBuyS
                 </p>
                 <button
                   onClick={handleBuyStockInternal}
-                  disabled={!isActiveSession || sessionCash < selectedTicker.currentPrice * (parseInt(buyQuantityInput, 10) || 0) || (parseInt(buyQuantityInput, 10) || 0) < 1}
+                  disabled={!sessionData?.isActive || sessionCash < selectedTicker.currentPrice * (parseInt(buyQuantityInput, 10) || 0) || (parseInt(buyQuantityInput, 10) || 0) < 1}
                   className="w-full px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  Buy {parseInt(buyQuantityInput, 10) || 0} {selectedTicker.symbol}
+                  Buy {parseInt(buyQuantityInput, 10) || ""} {selectedTicker.symbol}
                 </button>
-                {isActiveSession && sessionCash < selectedTicker.currentPrice * (parseInt(buyQuantityInput, 10) || 0) && (parseInt(buyQuantityInput,10) || 0) >=1 && (
+                {sessionData?.isActive && sessionCash < selectedTicker.currentPrice * (parseInt(buyQuantityInput, 10) || 0) && (parseInt(buyQuantityInput,10) || 0) >=1 && (
                     <p className="text-xs text-red-500 dark:text-red-400 text-center mt-1">Insufficient cash.</p>
                 )}
                  {(parseInt(buyQuantityInput, 10) || 0) < 1 && (

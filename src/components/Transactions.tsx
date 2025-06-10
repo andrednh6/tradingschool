@@ -1,6 +1,7 @@
-import { useEffect } from 'react'; // <-- ADDED IMPORT FOR useEffect
+import { useEffect } from 'react'; // <-- IMPORT ADDED
 import type { LocalTransaction } from '../types/simulation'; // Ensure path is correct
 
+// Props interface defines what this component expects from its parent
 interface TransactionsProps {
   transactions: LocalTransaction[];
   isLoadingSession: boolean;
@@ -21,7 +22,7 @@ export function Transactions({ transactions, isLoadingSession, isActiveSession }
     return (
       <div className="my-6 p-4 bg-white dark:bg-gray-700 rounded-lg shadow-xl">
         <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Transaction History (Simulation)</h2>
-        <p className="text-center py-6 text-gray-500 dark:text-gray-400">No active simulation session to display transactions.</p>
+        <p className="text-center py-6 text-gray-500 dark:text-gray-400">No active simulation session.</p>
       </div>
     );
   }
@@ -30,11 +31,12 @@ export function Transactions({ transactions, isLoadingSession, isActiveSession }
     return (
       <div className="my-6 p-4 bg-white dark:bg-gray-700 rounded-lg shadow-xl">
         <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Transaction History (Simulation)</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 py-6 text-center">No transactions made in this simulation session yet.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-6 text-center">No transactions made in this simulation yet.</p>
       </div>
     );
   }
 
+  // Sort transactions by timestamp, newest first
   const sortedTransactions = [...transactions].sort((a, b) => b.timestamp - a.timestamp);
 
   return (

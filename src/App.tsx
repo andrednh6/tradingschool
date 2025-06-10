@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+//import { useState, useEffect } from "react";
 import { AuthGate } from "./components/AuthGate";
 import { Portfolio } from "./components/Portfolio";
 import { MarketList } from "./components/MarketList";
@@ -8,28 +8,24 @@ import { useOnboarding } from "./hooks/useOnboarding";
 import { TheoryGuideWrapper } from "./components/TheoryGuideWrapper";
 import { useSimulationSession } from "./hooks/useSimulationSession";
 import { useToast } from "./hooks/useToast";
-import type { ShowToastFunction } from "./types/simulation"; // Ensure this type is correctly defined and imported
+import type { ShowToastFunction } from "./types/simulation";
+import { NextLevelGoals } from "./components/NextLevelGoals"; 
 
 function App() {
   const { show: showOnboarding, finish: finishOnboarding } = useOnboarding();
   
+  // Call the hook once here to be the single source of truth
+
   const { 
     sessionData, 
     isLoadingSession, 
     startNewGuidedSession, 
     resetCurrentSession, 
     advanceSimulatedWeek,
-    recordBuyInSession,
     recordSellInSession,
-    // completeTheoryForCurrentLevel // Not directly used by App, TheoryGuideWrapper handles it
   } = useSimulationSession();
   
   const { showToast } = useToast();
-
-  useEffect(() => {
-    // This log helps confirm App.tsx is getting the latest sessionData
-    console.log('[App.tsx] sessionData updated in App:', sessionData);
-  }, [sessionData]);
 
   const handleAdvanceWeek = () => {
     if (sessionData?.isActive) {
@@ -47,34 +43,16 @@ function App() {
 
       {!showOnboarding && (
         <div className="p-4 w-full max-w-screen-xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6"> 
-          {/* Left Column: Market & Transactions */}
           <div className="lg:col-span-1 space-y-6">
-            <MarketList 
-              marketTickers={sessionData?.marketTickers || []}
-              sessionCash={sessionData?.cash || 0}
-              isActiveSession={!!sessionData?.isActive}
-              onBuyStock={async (params) => {
-                if (recordBuyInSession && sessionData?.isActive) {
-                  await recordBuyInSession({ 
-                    symbol: params.symbol,
-                    name: params.name, 
-                    sector: params.sector,
-                    quantity: params.quantity,
-                    showToastFunc: showToast as ShowToastFunction 
-                  });
-                } else if (!sessionData?.isActive) {
-                    showToast("Cannot buy stock: No active simulation session.");
-                }
-              }}
-            />
+
+            <MarketList/>
             <Transactions 
               transactions={sessionData?.transactions || []}
-              isLoadingSession={isLoadingSession} // Pass isLoadingSession
+              isLoadingSession={isLoadingSession}
               isActiveSession={!!sessionData?.isActive}
             />
           </div>
 
-          {/* Right Column: Portfolio & Controls */}
           <div className="lg:col-span-2 space-y-6">
             <div className="p-3 bg-gray-200 dark:bg-gray-800 rounded-lg shadow">
               <h2 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Simulation Controls (Dev)</h2>
@@ -94,9 +72,6 @@ function App() {
                       <span>Level: {sessionData.currentLevel} (Theory: L{sessionData.theoryProgressLevelCompleted})</span>
                       <span>Week: {sessionData.simulatedWeeksPassed}</span>
                       <span>Cash: ${sessionData.cash.toFixed(2)}</span>
-                      <span>Portfolio Items: {sessionData.portfolio.length}</span>
-                      <span>Transactions: {sessionData.transactions.length}</span>
-                      <span className="col-span-2">Active Events: {sessionData.activeMarketEvents.map(e => e.eventName).join(', ') || 'None'}</span>
                     </div>
                   )}
                   <div className="flex space-x-2">
@@ -118,15 +93,15 @@ function App() {
               )}
             </div>
             
+            {/* NEW: Render the NextLevelGoals component */}
+            <NextLevelGoals />
             <Portfolio 
-              sessionData={sessionData} 
+              sessionData={sessionData}
               isLoadingSession={isLoadingSession}
               onSellStock={async (params) => {
-                if (recordSellInSession && sessionData?.isActive) {
-                  await recordSellInSession({ ...params, showToastFunc: showToast as ShowToastFunction });
-                } else if (!sessionData?.isActive) {
-                    showToast("Cannot sell stock: No active simulation session.");
-                }
+                  if (recordSellInSession && sessionData?.isActive) {
+                      await recordSellInSession({ ...params, showToastFunc: showToast as ShowToastFunction });
+                  }
               }}
             />
           </div>

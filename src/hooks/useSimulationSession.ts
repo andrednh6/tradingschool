@@ -8,17 +8,20 @@ const DEFAULT_INITIAL_CASH = 1000;
 const MAX_LEVEL_MVP = 5;
 const MAX_SIMULATION_WEEKS = 52; // Define the end point for the simulation
 
-
-
 const initialMarketTickers: SimulatedMarketTicker[] = [
-  { symbol: "ALPHA", name: "Alpha Corp", sector: "Technology", currentPrice: 100.00, history: [100.00], baseVolatility: 0.02, baseTrend: 0.001 },
-  { symbol: "BETA", name: "Beta Health Inc.", sector: "Health", currentPrice: 75.00, history: [75.00], baseVolatility: 0.015, baseTrend: 0.0005 },
-  { symbol: "GAMMA", name: "Gamma Energy Ltd.", sector: "Energy", currentPrice: 50.00, history: [50.00], baseVolatility: 0.03, baseTrend: -0.0005 },
-  { symbol: "DELTA", name: "Delta Consumer", sector: "Consumer Goods", currentPrice: 120.00, history: [120.00], baseVolatility: 0.01, baseTrend: 0.0008 },
-  { symbol: "EPSI", name: "Epsilon Finance", sector: "Finance", currentPrice: 90.00, history: [90.00], baseVolatility: 0.025, baseTrend: 0.0002 },
+  // Tech stock with a solid positive trend but higher volatility
+  { symbol: "ALPHA", name: "Alpha Corp", sector: "Technology", currentPrice: 100.00, history: [100.00], baseVolatility: 0.035, baseTrend: 0.0025 },
+  // Health stock, more stable with a steady, decent trend
+  { symbol: "BETA", name: "Beta Health Inc.", sector: "Health", currentPrice: 75.00, history: [75.00], baseVolatility: 0.018, baseTrend: 0.0015 },
+  // Energy stock, highly volatile and a slightly negative trend to represent risk
+  { symbol: "GAMMA", name: "Gamma Energy Ltd.", sector: "Energy", currentPrice: 50.00, history: [50.00], baseVolatility: 0.045, baseTrend: -0.0010 },
+  // Consumer goods stock, low volatility and a reliable but small positive trend
+  { symbol: "DELTA", name: "Delta Consumer", sector: "Consumer Goods", currentPrice: 120.00, history: [120.00], baseVolatility: 0.012, baseTrend: 0.0010 },
+  // Finance stock, medium volatility and a decent positive trend
+  { symbol: "EPSI", name: "Epsilon Finance", sector: "Finance", currentPrice: 90.00, history: [90.00], baseVolatility: 0.025, baseTrend: 0.0020 },
 ];
 
-const LEVEL_GOALS: Record<number, {
+export const LEVEL_GOALS: Record<number, {
   buyTransactionsMin?: number;
   sellTransactionsMin?: number;
   totalTransactionsMin?: number;
@@ -358,7 +361,17 @@ export function useSimulationSession() {
 
       };
 
+      if (newSimulatedWeeksPassed >= MAX_SIMULATION_WEEKS) {
 
+        showToastFunc(`Simulation complete: ${MAX_SIMULATION_WEEKS} weeks reached! Check your final report (feature coming soon).`);
+
+        finalSessionData.isActive = false;
+
+        saveSessionToLocalStorage(finalSessionData);
+
+        return finalSessionData;
+
+      }
 
       // Check for "gone broke" condition after prices are updated
 
