@@ -1,14 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-// Ensure your type import paths are correct
-import type { SimulationSessionData, LocalTransaction, ShowToastFunction, SimulatedMarketTicker } from '../types/simulation';
+import { useState, useEffect, useCallback, useReducer } from 'react';
+import type { SimulationSessionData, LocalPortfolioItem, LocalTransaction, ShowToastFunction, SimulatedMarketTicker, MarketEvent } from '../types/simulation';
 import { runWeeklyMarketUpdate, getTickerCurrentPrice } from '../lib/PriceUpdateEngine';
-// import type {LocalPortfolioItem, MarketEvent}
+
 const LOCAL_STORAGE_KEY = 'tradingSchool_simulationSession';
 const DEFAULT_INITIAL_CASH = 1000;
 const MAX_LEVEL_MVP = 5;
 const MAX_SIMULATION_WEEKS = 52;
 
-// Initial set of tickers for the simulation
 const initialMarketTickers: SimulatedMarketTicker[] = [
   { symbol: "ALPHA", name: "Alpha Corp", sector: "Technology", currentPrice: 100.00, history: [100.00], baseVolatility: 0.035, baseTrend: 0.0025 },
   { symbol: "BETA", name: "Beta Health Inc.", sector: "Health", currentPrice: 75.00, history: [75.00], baseVolatility: 0.018, baseTrend: 0.0015 },
@@ -40,217 +38,196 @@ const createDefaultSessionData = (initialCash: number): SimulationSessionData =>
   activeMarketEvents: [],
 });
 
-export function useSimulationSession() {
-  const [sessionData, setSessionData] = useState<SimulationSessionData | null>(null);
-  const [isLoadingSession, setIsLoadingSession] = useState(true);
+// --- STATE MANAGEMENT WITH A REDUCER ---
+// This prevents stale state issues by centralizing all state modifications.
 
-  // Use a ref to hold the latest checkAndAdvanceLevel function to avoid stale closures
-  const checkAndAdvanceLevelRef = useRef<(currentData: SimulationSessionData, showToastFunc: ShowToastFunction) => SimulationSessionData>(() => sessionData!);
+type Action =
+  | { type: 'SET_SESSION'; payload: SimulationSessionData | null }
+  | { type: 'BUY_STOCK'; payload: { symbol: string; name: string; sector: string; quantity: number; showToastFunc: ShowToastFunction } }
+  | { type: 'SELL_STOCK'; payload: { symbol: string; quantityToSell: number; showToastFunc: ShowToastFunction } }
+  | { type: 'COMPLETE_THEORY'; payload: { showToastFunc: ShowToastFunction } }
+  | { type: 'ADVANCE_WEEK'; payload: { showToastFunc: ShowToastFunction } }
+  | { type: 'START_NEW_SESSION' }
+  | { type: 'RESET_SESSION' };
 
-  const saveSessionToLocalStorage = useCallback((data: SimulationSessionData | null) => {
-    try {
-      if (data) {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
-      } else {
-        localStorage.removeItem(LOCAL_STORAGE_KEY);
+function sessionReducer(state: SimulationSessionData | null, action: Action): SimulationSessionData | null {
+  switch (action.type) {
+    case 'SET_SESSION':
+      return action.payload;
+    
+    case 'START_NEW_SESSION':
+      return createDefaultSessionData(DEFAULT_INITIAL_CASH);
+    
+    case 'RESET_SESSION':
+      return null;
+
+    case 'BUY_STOCK': {
+      if (!state || !state.isActive) { action.payload.showToastFunc("Error: No active session."); return state; }
+      const transactionPrice = getTickerCurrentPrice(state.marketTickers, action.payload.symbol);
+      if (transactionPrice <= 0) { action.payload.showToastFunc(`Error: Ticker ${action.payload.symbol} price invalid.`); return state; }
+      if (state.cash < transactionPrice * action.payload.quantity) { action.payload.showToastFunc("Insufficient funds."); return state; }
+      
+      const newCash = state.cash - (transactionPrice * action.payload.quantity);
+      let portfolioUpdated = false;
+      const updatedPortfolio = state.portfolio.map(item => {
+        if (item.symbol === action.payload.symbol) {
+          portfolioUpdated = true;
+          return { ...item, quantity: item.quantity + action.payload.quantity };
+        }
+        return item;
+      });
+      if (!portfolioUpdated) {
+        updatedPortfolio.push({ symbol: action.payload.symbol, name: action.payload.name, sector: action.payload.sector, quantity: action.payload.quantity });
       }
-    } catch (error) {
-      console.error("Error saving session to localStorage:", error);
+      const newTransaction: LocalTransaction = {
+        id: `${Date.now()}-${action.payload.symbol}`, type: 'buy', ...action.payload, price: transactionPrice,
+        totalValue: transactionPrice * action.payload.quantity, timestamp: Date.now(),
+      };
+      let finalData = { ...state, cash: newCash, portfolio: updatedPortfolio, transactions: [...state.transactions, newTransaction] };
+      action.payload.showToastFunc(`Sim: Bought ${action.payload.quantity} of ${action.payload.symbol}`);
+      return checkAndAdvanceLevel(finalData, action.payload.showToastFunc);
     }
-  }, []);
+    
+    case 'SELL_STOCK': {
+      if (!state || !state.isActive) { action.payload.showToastFunc("Error: No active session."); return state; }
+      const transactionPrice = getTickerCurrentPrice(state.marketTickers, action.payload.symbol);
+      if (transactionPrice <= 0) { action.payload.showToastFunc(`Error: Ticker ${action.payload.symbol} price invalid.`); return state; }
+      const stockIndex = state.portfolio.findIndex(s => s.symbol === action.payload.symbol);
+      const stockToSell = stockIndex > -1 ? state.portfolio[stockIndex] : null;
+      if (!stockToSell || stockToSell.quantity < action.payload.quantityToSell) { action.payload.showToastFunc("Not enough shares to sell."); return state; }
+      
+      const newCash = state.cash + (transactionPrice * action.payload.quantityToSell);
+      const updatedPortfolio = state.portfolio
+        .map(item => item.symbol === action.payload.symbol ? { ...item, quantity: item.quantity - action.payload.quantityToSell } : item)
+        .filter(item => item.quantity > 0);
+      const newTransaction: LocalTransaction = {
+        id: `${Date.now()}-${action.payload.symbol}`, type: 'sell', symbol: action.payload.symbol, name: stockToSell.name, sector: stockToSell.sector,
+        quantity: action.payload.quantityToSell, price: transactionPrice,
+        totalValue: transactionPrice * action.payload.quantityToSell, timestamp: Date.now(),
+      };
+      let finalData = { ...state, cash: newCash, portfolio: updatedPortfolio, transactions: [...state.transactions, newTransaction] };
+      action.payload.showToastFunc(`Sim: Sold ${action.payload.quantityToSell} of ${action.payload.symbol}`);
+      return checkAndAdvanceLevel(finalData, action.payload.showToastFunc);
+    }
 
-  // Update sessionData and save to localStorage
-  const updateSessionData = useCallback((newData: SimulationSessionData | null) => {
-      setSessionData(newData);
-      saveSessionToLocalStorage(newData);
-  }, [saveSessionToLocalStorage]);
+    case 'COMPLETE_THEORY': {
+      if (!state || !state.isActive) return state;
+      if (state.theoryProgressLevelCompleted < state.currentLevel) {
+        let updatedData = { ...state, theoryProgressLevelCompleted: state.currentLevel };
+        action.payload.showToastFunc(`Theory for Level ${state.currentLevel} completed! Now check your goals.`);
+        return checkAndAdvanceLevel(updatedData, action.payload.showToastFunc);
+      }
+      return state;
+    }
+
+    case 'ADVANCE_WEEK': {
+      if (!state || !state.isActive) return state;
+      const newSimulatedWeeksPassed = state.simulatedWeeksPassed + 1;
+      const { updatedTickers, updatedActiveEvents } = runWeeklyMarketUpdate(
+        state.marketTickers, newSimulatedWeeksPassed, state.activeMarketEvents
+      );
+      
+      let finalSessionData: SimulationSessionData = {
+        ...state, marketTickers: updatedTickers,
+        activeMarketEvents: updatedActiveEvents, simulatedWeeksPassed: newSimulatedWeeksPassed,
+      };
+
+      if (newSimulatedWeeksPassed >= MAX_SIMULATION_WEEKS) {
+        action.payload.showToastFunc(`Simulation complete: ${MAX_SIMULATION_WEEKS} weeks reached!`);
+        finalSessionData.isActive = false;
+        return finalSessionData;
+      }
+      
+      const stockValue = finalSessionData.portfolio.reduce((acc, item) => acc + (item.quantity * getTickerCurrentPrice(finalSessionData.marketTickers, item.symbol)), 0);
+      if (finalSessionData.cash <= 0 && stockValue <= 0) {
+        action.payload.showToastFunc("Simulation ended: You've run out of funds!");
+        finalSessionData.isActive = false;
+        return finalSessionData;
+      }
+      
+      action.payload.showToastFunc(`Simulated Week ${newSimulatedWeeksPassed}. The market has moved...`);
+      return checkAndAdvanceLevel(finalSessionData, action.payload.showToastFunc);
+    }
+    
+    default:
+      return state;
+  }
+}
+
+// Pure function to check for level advancement
+function checkAndAdvanceLevel(currentData: SimulationSessionData, showToastFunc: ShowToastFunction): SimulationSessionData {
+    if (!currentData.isActive || currentData.currentLevel >= MAX_LEVEL_MVP) return currentData;
+    const theoryMet = currentData.theoryProgressLevelCompleted >= currentData.currentLevel;
+    if (!theoryMet) return currentData;
+    
+    const goals = LEVEL_GOALS[currentData.currentLevel];
+    let goalsMet = true;
+    if (!goals) { console.warn(`No goals for level ${currentData.currentLevel}`); return currentData; }
+
+    if (goals.simulatedWeeksMin !== undefined && currentData.simulatedWeeksPassed < goals.simulatedWeeksMin) goalsMet = false;
+    if (goalsMet && goals.buyTransactionsMin !== undefined && currentData.transactions.filter(t => t.type === 'buy').length < goals.buyTransactionsMin) goalsMet = false;
+    if (goalsMet && goals.sellTransactionsMin !== undefined && currentData.transactions.filter(t => t.type === 'sell').length < goals.sellTransactionsMin) goalsMet = false;
+    if (goalsMet && goals.totalTransactionsMin !== undefined && currentData.transactions.length < goals.totalTransactionsMin) goalsMet = false;
+    if (goalsMet && goals.hasStocksInPortfolio && !currentData.portfolio.some(s => s.quantity > 0)) goalsMet = false;
+    if (goalsMet && goals.sectorsInPortfolioMin !== undefined && new Set(currentData.portfolio.map(s => s.sector)).size < goals.sectorsInPortfolioMin) goalsMet = false;
+    if (goalsMet && goals.portfolioValueMin !== undefined) {
+      const stockValue = currentData.portfolio.reduce((acc, item) => acc + (item.quantity * getTickerCurrentPrice(currentData.marketTickers, item.symbol)), 0);
+      if (currentData.cash + stockValue < goals.portfolioValueMin) goalsMet = false;
+    }
+
+    if (goalsMet) {
+      const newLevel = currentData.currentLevel + 1;
+      const message = newLevel > MAX_LEVEL_MVP ? "You've completed all simulation training objectives!" : `Congratulations! You've advanced to Level ${newLevel}!`;
+      showToastFunc(message);
+      if (newLevel > MAX_LEVEL_MVP) {
+        return { ...currentData, currentLevel: MAX_LEVEL_MVP, isActive: false };
+      }
+      return { ...currentData, currentLevel: newLevel };
+    }
+    return currentData;
+}
+
+
+// --- THE HOOK ---
+export function useSimulationSession() {
+  const [sessionData, dispatch] = useReducer(sessionReducer, null);
+  const [isLoadingSession, setIsLoadingSession] = useState(true);
 
   // Initial load from localStorage
   useEffect(() => {
     setIsLoadingSession(true);
     try {
       const savedSessionJson = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (savedSessionJson) {
-        let parsedSession = JSON.parse(savedSessionJson) as SimulationSessionData;
-        if (typeof parsedSession.currentLevel === 'number' && Array.isArray(parsedSession.portfolio)) {
-          if (parsedSession.activeMarketEvents === undefined) parsedSession.activeMarketEvents = [];
-          if (!parsedSession.marketTickers || parsedSession.marketTickers.length === 0) parsedSession.marketTickers = initialMarketTickers.map(t => ({ ...t, history: [t.currentPrice]}));
-          if (parsedSession.simulatedWeeksPassed === undefined) parsedSession.simulatedWeeksPassed = 0;
-          if (parsedSession.theoryProgressLevelCompleted === undefined) parsedSession.theoryProgressLevelCompleted = 0;
-          if (parsedSession.isActive === false) {
-            updateSessionData(null);
-          } else {
-            setSessionData(parsedSession);
-          }
-        } else {
-          updateSessionData(createDefaultSessionData(DEFAULT_INITIAL_CASH));
-        }
+      const initialSession = savedSessionJson ? JSON.parse(savedSessionJson) as SimulationSessionData : null;
+      if (initialSession && initialSession.isActive === false) {
+        // If loaded session was completed, don't resume it.
+        dispatch({ type: 'SET_SESSION', payload: null });
+        localStorage.removeItem(LOCAL_STORAGE_KEY);
       } else {
-        setSessionData(null);
+        dispatch({ type: 'SET_SESSION', payload: initialSession });
       }
     } catch (error) {
       console.error("Error loading session:", error);
-      updateSessionData(null);
+      dispatch({ type: 'SET_SESSION', payload: null });
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
     }
     setIsLoadingSession(false);
-  }, [updateSessionData]);
+  }, []);
 
-
+  // Save to localStorage whenever sessionData changes
   useEffect(() => {
-    // This function checks goals. It needs access to the LATEST sessionData.
-    // By putting it in a useEffect that runs whenever sessionData changes,
-    // we ensure the function in the ref is always fresh.
-    checkAndAdvanceLevelRef.current = (currentData, showToastFunc) => {
-      if (!currentData.isActive || currentData.currentLevel >= MAX_LEVEL_MVP) return currentData;
-      
-      const theoryMet = currentData.theoryProgressLevelCompleted >= currentData.currentLevel;
-      if (!theoryMet) return currentData;
-      
-      const goals = LEVEL_GOALS[currentData.currentLevel];
-      let goalsMet = true;
-      if (!goals) return currentData;
+    if (!isLoadingSession) { // Don't save during initial load
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sessionData));
+    }
+  }, [sessionData, isLoadingSession]);
 
-      // Check all goals
-      if (goals.simulatedWeeksMin !== undefined && currentData.simulatedWeeksPassed < goals.simulatedWeeksMin) goalsMet = false;
-      if (goalsMet && goals.buyTransactionsMin !== undefined && currentData.transactions.filter(t => t.type === 'buy').length < goals.buyTransactionsMin) goalsMet = false;
-      if (goalsMet && goals.sellTransactionsMin !== undefined && currentData.transactions.filter(t => t.type === 'sell').length < goals.sellTransactionsMin) goalsMet = false;
-      if (goalsMet && goals.totalTransactionsMin !== undefined && currentData.transactions.length < goals.totalTransactionsMin) goalsMet = false;
-      if (goalsMet && goals.hasStocksInPortfolio && !currentData.portfolio.some(s => s.quantity > 0)) goalsMet = false;
-      if (goalsMet && goals.sectorsInPortfolioMin !== undefined && new Set(currentData.portfolio.map(s => s.sector)).size < goals.sectorsInPortfolioMin) goalsMet = false;
-      if (goalsMet && goals.portfolioValueMin !== undefined) {
-        const stockValue = currentData.portfolio.reduce((acc, item) => acc + (item.quantity * getTickerCurrentPrice(currentData.marketTickers, item.symbol)), 0);
-        if (currentData.cash + stockValue < goals.portfolioValueMin) goalsMet = false;
-      }
-
-      if (goalsMet) {
-        const newLevel = currentData.currentLevel + 1;
-        const message = newLevel > MAX_LEVEL_MVP ? "You've completed all simulation training objectives!" : `Congratulations! You've advanced to Level ${newLevel}!`;
-        showToastFunc(message);
-        return { ...currentData, currentLevel: newLevel };
-      }
-      return currentData;
-    };
-  }, []); // Ref function definition only needs to be set once. Its logic accesses latest state via params.
-
-  const startNewGuidedSession = useCallback(() => {
-    updateSessionData(createDefaultSessionData(DEFAULT_INITIAL_CASH));
-  }, [updateSessionData]);
-
-  const resetCurrentSession = useCallback(() => {
-    updateSessionData(null);
-  }, [updateSessionData]);
-
-  const recordBuyInSession = useCallback((params: {
-    symbol: string; name: string; sector: string; quantity: number; showToastFunc: ShowToastFunction;
-  }) => {
-    setSessionData(prevData => {
-      if (!prevData || !prevData.isActive) { params.showToastFunc("Error: No active session."); return prevData; }
-      const transactionPrice = getTickerCurrentPrice(prevData.marketTickers, params.symbol);
-      if (transactionPrice <= 0) { params.showToastFunc(`Error: Ticker ${params.symbol} price invalid.`); return prevData; }
-      if (prevData.cash < transactionPrice * params.quantity) { params.showToastFunc("Insufficient funds."); return prevData; }
-      
-      const newCash = prevData.cash - (transactionPrice * params.quantity);
-      let portfolioUpdated = false;
-      const updatedPortfolio = prevData.portfolio.map(item => {
-        if (item.symbol === params.symbol) {
-          portfolioUpdated = true;
-          return { ...item, quantity: item.quantity + params.quantity };
-        }
-        return item;
-      });
-      if (!portfolioUpdated) {
-        updatedPortfolio.push({ symbol: params.symbol, name: params.name, sector: params.sector, quantity: params.quantity });
-      }
-      const newTransaction: LocalTransaction = {
-        id: `${Date.now()}-${params.symbol}`, type: 'buy', ...params, price: transactionPrice,
-        totalValue: transactionPrice * params.quantity, timestamp: Date.now(),
-      };
-      let finalData = { ...prevData, cash: newCash, portfolio: updatedPortfolio, transactions: [...prevData.transactions, newTransaction] };
-      finalData = checkAndAdvanceLevelRef.current(finalData, params.showToastFunc);
-      saveSessionToLocalStorage(finalData);
-      params.showToastFunc(`Sim: Bought ${params.quantity} of ${params.symbol}`);
-      return finalData;
-    });
-    return { success: true };
-  }, [saveSessionToLocalStorage]);
-
-  const recordSellInSession = useCallback((params: {
-    symbol: string; quantityToSell: number; showToastFunc: ShowToastFunction;
-  }) => {
-    setSessionData(prevData => {
-      if (!prevData || !prevData.isActive) { params.showToastFunc("Error: No active session."); return prevData; }
-      const transactionPrice = getTickerCurrentPrice(prevData.marketTickers, params.symbol);
-      if (transactionPrice <= 0) { params.showToastFunc(`Error: Ticker ${params.symbol} price invalid.`); return prevData; }
-      const stockIndex = prevData.portfolio.findIndex(s => s.symbol === params.symbol);
-      const stockToSell = stockIndex > -1 ? prevData.portfolio[stockIndex] : null;
-      if (!stockToSell || stockToSell.quantity < params.quantityToSell) { params.showToastFunc("Not enough shares to sell."); return prevData; }
-      
-      const newCash = prevData.cash + (transactionPrice * params.quantityToSell);
-      const updatedPortfolio = prevData.portfolio
-        .map(item => item.symbol === params.symbol ? { ...item, quantity: item.quantity - params.quantityToSell } : item)
-        .filter(item => item.quantity > 0);
-      const newTransaction: LocalTransaction = {
-        id: `${Date.now()}-${params.symbol}`, type: 'sell', symbol: params.symbol, name: stockToSell.name, sector: stockToSell.sector,
-        quantity: params.quantityToSell, price: transactionPrice,
-        totalValue: transactionPrice * params.quantityToSell, timestamp: Date.now(),
-      };
-      let finalData = { ...prevData, cash: newCash, portfolio: updatedPortfolio, transactions: [...prevData.transactions, newTransaction] };
-      finalData = checkAndAdvanceLevelRef.current(finalData, params.showToastFunc);
-      saveSessionToLocalStorage(finalData);
-      params.showToastFunc(`Sim: Sold ${params.quantityToSell} of ${params.symbol}`);
-      return finalData;
-    });
-    return { success: true };
-  }, [saveSessionToLocalStorage]);
-
-  const completeTheoryForCurrentLevel = useCallback((showToastFunc: ShowToastFunction) => {
-    setSessionData(prevData => {
-      if (!prevData || !prevData.isActive) return prevData;
-      if (prevData.theoryProgressLevelCompleted < prevData.currentLevel) {
-        let updatedData = { ...prevData, theoryProgressLevelCompleted: prevData.currentLevel };
-        showToastFunc(`Theory for Level ${prevData.currentLevel} completed! Now check your goals.`);
-        updatedData = checkAndAdvanceLevelRef.current(updatedData, showToastFunc);
-        saveSessionToLocalStorage(updatedData);
-        return updatedData;
-      }
-      return prevData;
-    });
-  }, [saveSessionToLocalStorage]);
-
-  const advanceSimulatedWeek = useCallback((showToastFunc: ShowToastFunction) => {
-    setSessionData(prevData => {
-      if (!prevData || !prevData.isActive) return prevData;
-      const newSimulatedWeeksPassed = prevData.simulatedWeeksPassed + 1;
-      const { updatedTickers, updatedActiveEvents } = runWeeklyMarketUpdate(
-        prevData.marketTickers, newSimulatedWeeksPassed, prevData.activeMarketEvents
-      );
-      
-      let finalSessionData: SimulationSessionData = {
-        ...prevData, marketTickers: updatedTickers,
-        activeMarketEvents: updatedActiveEvents, simulatedWeeksPassed: newSimulatedWeeksPassed,
-      };
-
-      if (newSimulatedWeeksPassed >= MAX_SIMULATION_WEEKS) {
-        showToastFunc(`Simulation complete: ${MAX_SIMULATION_WEEKS} weeks reached!`);
-        finalSessionData.isActive = false;
-        saveSessionToLocalStorage(finalSessionData);
-        return finalSessionData;
-      }
-      
-      const stockValue = finalSessionData.portfolio.reduce((acc, item) => acc + (item.quantity * getTickerCurrentPrice(finalSessionData.marketTickers, item.symbol)), 0);
-      if (finalSessionData.cash <= 0 && stockValue <= 0) {
-        showToastFunc("Simulation ended: You've run out of funds!");
-        finalSessionData.isActive = false;
-        saveSessionToLocalStorage(finalSessionData);
-        return finalSessionData;
-      }
-      
-      showToastFunc(`Simulated Week ${newSimulatedWeeksPassed}. The market has moved...`);
-      finalSessionData = checkAndAdvanceLevelRef.current(finalSessionData, showToastFunc);
-      saveSessionToLocalStorage(finalSessionData);
-      return finalSessionData;
-    });
-  }, [saveSessionToLocalStorage]);
+  // Memoized action dispatchers
+  const startNewGuidedSession = useCallback(() => dispatch({ type: 'START_NEW_SESSION' }), []);
+  const resetCurrentSession = useCallback(() => dispatch({ type: 'RESET_SESSION' }), []);
+  const recordBuyInSession = useCallback((payload: { symbol: string; name: string; sector: string; quantity: number; showToastFunc: ShowToastFunction }) => dispatch({ type: 'BUY_STOCK', payload }), []);
+  const recordSellInSession = useCallback((payload: { symbol: string; quantityToSell: number; showToastFunc: ShowToastFunction }) => dispatch({ type: 'SELL_STOCK', payload }), []);
+  const completeTheoryForCurrentLevel = useCallback((payload: { showToastFunc: ShowToastFunction }) => dispatch({ type: 'COMPLETE_THEORY', payload }), []);
+  const advanceSimulatedWeek = useCallback((payload: { showToastFunc: ShowToastFunction }) => dispatch({ type: 'ADVANCE_WEEK', payload }), []);
 
   return {
     sessionData, isLoadingSession, startNewGuidedSession, resetCurrentSession,

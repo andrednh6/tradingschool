@@ -20,7 +20,7 @@ export function TheoryGuideWrapper() {
   }
 
   const handleCompleteSeries = async () => {
-    await completeTheoryForCurrentLevel(showToast as ShowToastFunction);
+    await completeTheoryForCurrentLevel({showToastFunc: showToast as ShowToastFunction});
   };
 
   return (
